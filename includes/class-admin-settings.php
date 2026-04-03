@@ -49,6 +49,7 @@ class Bulwark_JMAP_Admin_Settings {
 			'password'   => __( 'Password', 'bulwark-jmap-mail' ),
 			'from_name'  => __( 'From Name', 'bulwark-jmap-mail' ),
 			'from_email' => __( 'From Email', 'bulwark-jmap-mail' ),
+			'test_recipient' => __( 'Test Recipient', 'bulwark-jmap-mail' ),
 		);
 
 		foreach ( $fields as $key => $label ) {
@@ -70,6 +71,7 @@ class Bulwark_JMAP_Admin_Settings {
 		$sanitized['username']   = sanitize_text_field( $input['username'] ?? '' );
 		$sanitized['from_name']  = sanitize_text_field( $input['from_name'] ?? '' );
 		$sanitized['from_email'] = sanitize_email( $input['from_email'] ?? '' );
+		$sanitized['test_recipient'] = sanitize_email( $input['test_recipient'] ?? '' );
 
 		// Only update password if a new one was provided.
 		if ( ! empty( $input['password'] ) ) {
@@ -122,6 +124,12 @@ class Bulwark_JMAP_Admin_Settings {
 		echo '<input type="email" class="regular-text" name="' . esc_attr( $this->option_name ) . '[from_email]" value="' . esc_attr( $value ) . '" />';
 	}
 
+	public function render_field_test_recipient() {
+		$value = $this->get_option( 'test_recipient', $this->get_option( 'from_email', get_bloginfo( 'admin_email' ) ) );
+		echo '<input type="email" class="regular-text" name="' . esc_attr( $this->option_name ) . '[test_recipient]" value="' . esc_attr( $value ) . '" />';
+		echo '<p class="description">' . esc_html__( 'Used only by the Send Test Email button. If left empty, the plugin falls back to From Email, then the WordPress admin email.', 'bulwark-jmap-mail' ) . '</p>';
+	}
+
 	public function render_settings_page() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
@@ -150,6 +158,8 @@ class Bulwark_JMAP_Admin_Settings {
 			(function(){
 				var labels = {
 					account: '<?php echo esc_js( __( 'Account', 'bulwark-jmap-mail' ) ); ?>',
+					identity: '<?php echo esc_js( __( 'Identity', 'bulwark-jmap-mail' ) ); ?>',
+					recipient: '<?php echo esc_js( __( 'Recipient', 'bulwark-jmap-mail' ) ); ?>',
 					capabilities: '<?php echo esc_js( __( 'Capabilities', 'bulwark-jmap-mail' ) ); ?>',
 					warning: '<?php echo esc_js( __( 'Warning', 'bulwark-jmap-mail' ) ); ?>',
 					warnings: '<?php echo esc_js( __( 'Warnings', 'bulwark-jmap-mail' ) ); ?>'
@@ -218,6 +228,12 @@ class Bulwark_JMAP_Admin_Settings {
 						}
 						if (data.account) {
 							appendLabeledValue(content, labels.account, data.account, true);
+						}
+						if (data.identity) {
+							appendLabeledValue(content, labels.identity, data.identity, false);
+						}
+						if (data.recipient) {
+							appendLabeledValue(content, labels.recipient, data.recipient, true);
 						}
 						if (data.capabilities && data.capabilities.length) {
 							var details = document.createElement('details');
@@ -298,7 +314,11 @@ class Bulwark_JMAP_Admin_Settings {
 		$test_type = isset( $_POST['test_type'] ) ? sanitize_text_field( $_POST['test_type'] ) : 'connection';
 
 		if ( 'email' === $test_type ) {
-			$to = ! empty( $options['from_email'] ) ? $options['from_email'] : get_bloginfo( 'admin_email' );
+			$to = ! empty( $options['test_recipient'] ) ? $options['test_recipient'] : '';
+			if ( empty( $to ) ) {
+				$to = ! empty( $options['from_email'] ) ? $options['from_email'] : get_bloginfo( 'admin_email' );
+			}
+
 			$mail_error = null;
 			$error_handler = function( $error ) use ( &$mail_error ) {
 				$mail_error = $error;
@@ -315,6 +335,7 @@ class Bulwark_JMAP_Admin_Settings {
 			if ( $sent ) {
 				wp_send_json_success( array(
 					'message' => __( 'Test email sent successfully!', 'bulwark-jmap-mail' ),
+					'recipient' => $to,
 				) );
 			} else {
 				$message = __( 'Failed to send test email. Check your JMAP server logs.', 'bulwark-jmap-mail' );
@@ -325,6 +346,7 @@ class Bulwark_JMAP_Admin_Settings {
 
 				wp_send_json_error( array(
 					'message' => $message,
+					'recipient' => $to,
 				) );
 			}
 		} else {
@@ -332,19 +354,42 @@ class Bulwark_JMAP_Admin_Settings {
 			$capabilities = array_keys( $session['capabilities'] ?? array() );
 			$has_submission = $client->supports_submission();
 			$warnings = array();
+			$identity_label = '';
 
 			if ( ! $has_submission ) {
 				$warnings[] = __( 'Server does not advertise urn:ietf:params:jmap:submission capability. Email sending may not work.', 'bulwark-jmap-mail' );
 			}
 
-			$identity_result = $client->get_identity_id( $options['from_email'] ?? '' );
+			$identity_result = $client->get_identity( $options['from_email'] ?? '' );
 			if ( is_wp_error( $identity_result ) ) {
 				$warnings[] = $identity_result->get_error_message();
+			} else {
+				$identity_label = ! empty( $identity_result['email'] ) ? $identity_result['email'] : '';
+
+				if ( ! empty( $identity_result['name'] ) ) {
+					$identity_label = $identity_result['name'];
+					if ( ! empty( $identity_result['email'] ) ) {
+						$identity_label .= ' <' . $identity_result['email'] . '>';
+					}
+				}
+
+				if ( ! empty( $identity_result['id'] ) ) {
+					if ( '' !== $identity_label ) {
+						$identity_label .= ' ';
+					}
+
+					$identity_label .= sprintf(
+						/* translators: %s: JMAP identity id */
+						__( '(ID: %s)', 'bulwark-jmap-mail' ),
+						$identity_result['id']
+					);
+				}
 			}
 
 			wp_send_json_success( array(
 				'message'      => __( 'Connection successful!', 'bulwark-jmap-mail' ),
 				'account'      => (string) $client->get_account_id(),
+				'identity'     => $identity_label,
 				'capabilities' => array_values( $capabilities ),
 				'warnings'     => $warnings,
 			) );

@@ -151,8 +151,7 @@ class Bulwark_JMAP_Mailer {
 			$email_object['attachments'] = $jmap_attachments;
 		}
 
-		// Build the method calls: Email/set + EmailSubmission/set.
-		$method_calls = array(
+		$email_create_responses = $client->request( array(
 			array(
 				'Email/set',
 				array(
@@ -163,44 +162,53 @@ class Bulwark_JMAP_Mailer {
 				),
 				'0',
 			),
-			array(
-				'EmailSubmission/set',
-				array(
-					'accountId' => $account_id,
-					'create'    => array(
-						'sub-1' => array(
-							'#emailId'   => array(
-								'resultOf' => '0',
-								'name'     => 'Email/set',
-								'path'     => '/created/' . $email_create_id . '/id',
-							),
-							'identityId' => $identity_id,
-						),
-					),
-				),
-				'1',
-			),
-		);
+		) );
 
-		$responses = $client->request( $method_calls );
-
-		if ( is_wp_error( $responses ) ) {
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $responses->get_error_message() ) );
+		if ( is_wp_error( $email_create_responses ) ) {
+			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $email_create_responses->get_error_message() ) );
 			return false;
 		}
 
 		// Check for errors in Email/set response.
-		if ( isset( $responses[0][1]['notCreated'] ) && ! empty( $responses[0][1]['notCreated'] ) ) {
-			$errors = $responses[0][1]['notCreated'];
+		if ( isset( $email_create_responses[0][1]['notCreated'] ) && ! empty( $email_create_responses[0][1]['notCreated'] ) ) {
+			$errors = $email_create_responses[0][1]['notCreated'];
 			$first_error = reset( $errors );
 			$error_msg = isset( $first_error['description'] ) ? $first_error['description'] : __( 'Failed to create email', 'bulwark-jmap-mail' );
 			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );
 			return false;
 		}
 
+		if ( empty( $email_create_responses[0][1]['created'][ $email_create_id ]['id'] ) ) {
+			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', __( 'JMAP email creation did not return an email id', 'bulwark-jmap-mail' ) ) );
+			return false;
+		}
+
+		$email_id = $email_create_responses[0][1]['created'][ $email_create_id ]['id'];
+
+		$submission_responses = $client->request( array(
+			array(
+				'EmailSubmission/set',
+				array(
+					'accountId' => $account_id,
+					'create'    => array(
+						'sub-1' => array(
+							'emailId'    => $email_id,
+							'identityId' => $identity_id,
+						),
+					),
+				),
+				'0',
+			),
+		) );
+
+		if ( is_wp_error( $submission_responses ) ) {
+			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $submission_responses->get_error_message() ) );
+			return false;
+		}
+
 		// Check for errors in EmailSubmission/set response.
-		if ( isset( $responses[1][1]['notCreated'] ) && ! empty( $responses[1][1]['notCreated'] ) ) {
-			$errors = $responses[1][1]['notCreated'];
+		if ( isset( $submission_responses[0][1]['notCreated'] ) && ! empty( $submission_responses[0][1]['notCreated'] ) ) {
+			$errors = $submission_responses[0][1]['notCreated'];
 			$first_error = reset( $errors );
 			$error_msg = isset( $first_error['description'] ) ? $first_error['description'] : __( 'Failed to submit email', 'bulwark-jmap-mail' );
 			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );
@@ -208,7 +216,15 @@ class Bulwark_JMAP_Mailer {
 		}
 
 		// Check for JMAP-level errors (e.g. method-level error responses).
-		foreach ( $responses as $resp ) {
+		foreach ( $email_create_responses as $resp ) {
+			if ( isset( $resp[0] ) && $resp[0] === 'error' ) {
+				$error_msg = isset( $resp[1]['description'] ) ? $resp[1]['description'] : __( 'JMAP error', 'bulwark-jmap-mail' );
+				do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );
+				return false;
+			}
+		}
+
+		foreach ( $submission_responses as $resp ) {
 			if ( isset( $resp[0] ) && $resp[0] === 'error' ) {
 				$error_msg = isset( $resp[1]['description'] ) ? $resp[1]['description'] : __( 'JMAP error', 'bulwark-jmap-mail' );
 				do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );

@@ -10,6 +10,7 @@ A WordPress plugin that replaces the default PHP mail function with the modern [
 - File attachment support via JMAP blob upload
 - CC, BCC, and Reply-To header support
 - Identity auto-detection from JMAP server
+- Separate test recipient for admin test emails
 - Connection test and test email from the admin panel
 - Compatible with any RFC 8620/8621 compliant JMAP server (Stalwart, Cyrus, etc.)
 
@@ -18,7 +19,7 @@ A WordPress plugin that replaces the default PHP mail function with the modern [
 1. Hooks into the WordPress `pre_wp_mail` filter to intercept outgoing email
 2. Discovers the JMAP session at `{server}/.well-known/jmap`
 3. Resolves the sender's identity and the Sent mailbox from the server
-4. Creates the email via `Email/set` and submits via `EmailSubmission/set` using a JMAP back-reference for atomic create+submit in a single API request
+4. Creates the email via `Email/set`, then submits it via `EmailSubmission/set` using the returned email id
 
 ## Requirements
 
@@ -35,7 +36,8 @@ Tested with [Stalwart Mail Server](https://stalw.art/). Should work with Cyrus I
 3. Go to **Settings → JMAP Mail**
 4. Enter your JMAP server URL, username, and password
 5. Enable the plugin and save
-6. Use the **Test Connection** button to verify your setup, then **Send Test Email** to confirm delivery
+6. Optionally set a dedicated **Test Recipient** address for admin test emails
+7. Use the **Test Connection** button to verify your setup, then **Send Test Email** to confirm delivery
 
 ## FAQ
 

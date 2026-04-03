@@ -107,6 +107,7 @@ class Bulwark_JMAP_Client {
 				'Authorization' => $this->auth_header,
 				'Accept'        => 'application/json',
 			),
+			'httpversion' => '1.1',
 			'timeout'     => 30,
 			'redirection' => 0,
 		) );
@@ -245,13 +246,15 @@ class Bulwark_JMAP_Client {
 		);
 
 		$response = wp_remote_post( $this->api_url, array(
-			'headers' => array(
+			'headers'     => array(
 				'Authorization' => $this->auth_header,
 				'Content-Type'  => 'application/json',
 				'Accept'        => 'application/json',
 			),
-			'body'    => wp_json_encode( $payload ),
-			'timeout' => 30,
+			'body'        => wp_json_encode( $payload, JSON_UNESCAPED_SLASHES ),
+			'data_format' => 'body',
+			'httpversion' => '1.1',
+			'timeout'     => 30,
 		) );
 
 		if ( is_wp_error( $response ) ) {
@@ -260,13 +263,20 @@ class Bulwark_JMAP_Client {
 
 		$code = wp_remote_retrieve_response_code( $response );
 		if ( $code !== 200 ) {
+			$error_message = sprintf(
+				/* translators: %d: HTTP status code */
+				__( 'JMAP API request failed with HTTP %d', 'bulwark-jmap-mail' ),
+				$code
+			);
+
+			$body = json_decode( wp_remote_retrieve_body( $response ), true );
+			if ( is_array( $body ) && ! empty( $body['detail'] ) ) {
+				$error_message .= ': ' . $body['detail'];
+			}
+
 			return new WP_Error(
 				'jmap_api_error',
-				sprintf(
-					/* translators: %d: HTTP status code */
-					__( 'JMAP API request failed with HTTP %d', 'bulwark-jmap-mail' ),
-					$code
-				)
+				$error_message
 			);
 		}
 
@@ -308,12 +318,14 @@ class Bulwark_JMAP_Client {
 		$url = str_replace( '{accountId}', urlencode( $this->account_id ), $this->upload_url );
 
 		$response = wp_remote_post( $url, array(
-			'headers' => array(
+			'headers'     => array(
 				'Authorization' => $this->auth_header,
 				'Content-Type'  => $type,
 			),
-			'body'    => $data,
-			'timeout' => 60,
+			'body'        => $data,
+			'data_format' => 'body',
+			'httpversion' => '1.1',
+			'timeout'     => 60,
 		) );
 
 		if ( is_wp_error( $response ) ) {
@@ -345,12 +357,12 @@ class Bulwark_JMAP_Client {
 	}
 
 	/**
-	 * Resolve the sender's JMAP Identity ID.
+	 * Resolve the sender's JMAP Identity.
 	 *
 	 * @param string $from_email The from email to match.
-	 * @return string|WP_Error Identity ID or error.
+	 * @return array|WP_Error Identity array or error.
 	 */
-	public function get_identity_id( $from_email ) {
+	public function get_identity( $from_email ) {
 		$responses = $this->request( array(
 			array( 'Identity/get', array( 'accountId' => $this->account_id ), '0' ),
 		) );
@@ -371,12 +383,35 @@ class Bulwark_JMAP_Client {
 		// Try to match the from_email.
 		foreach ( $identities as $identity ) {
 			if ( isset( $identity['email'] ) && strtolower( $identity['email'] ) === strtolower( $from_email ) ) {
-				return $identity['id'];
+				return $identity;
 			}
 		}
 
 		// Fallback to first identity.
-		return $identities[0]['id'];
+		return $identities[0];
+	}
+
+	/**
+	 * Resolve the sender's JMAP Identity ID.
+	 *
+	 * @param string $from_email The from email to match.
+	 * @return string|WP_Error Identity ID or error.
+	 */
+	public function get_identity_id( $from_email ) {
+		$identity = $this->get_identity( $from_email );
+
+		if ( is_wp_error( $identity ) ) {
+			return $identity;
+		}
+
+		if ( empty( $identity['id'] ) ) {
+			return new WP_Error(
+				'jmap_identity_invalid',
+				__( 'Matched JMAP identity did not include an id', 'bulwark-jmap-mail' )
+			);
+		}
+
+		return $identity['id'];
 	}
 
 	public function get_account_id() {

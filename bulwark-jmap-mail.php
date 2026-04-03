@@ -65,6 +65,7 @@ function bulwark_jmap_activate() {
 			'password'   => '',
 			'from_name'  => get_bloginfo( 'name' ),
 			'from_email' => get_bloginfo( 'admin_email' ),
+			'test_recipient' => get_bloginfo( 'admin_email' ),
 		) );
 	}
 }
