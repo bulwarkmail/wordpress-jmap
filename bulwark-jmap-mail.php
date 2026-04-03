@@ -24,6 +24,7 @@ define( 'BULWARK_JMAP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'BULWARK_JMAP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
 require_once BULWARK_JMAP_PLUGIN_DIR . 'includes/class-jmap-client.php';
+require_once BULWARK_JMAP_PLUGIN_DIR . 'includes/class-mail-log.php';
 require_once BULWARK_JMAP_PLUGIN_DIR . 'includes/class-jmap-mailer.php';
 require_once BULWARK_JMAP_PLUGIN_DIR . 'includes/class-admin-settings.php';
 

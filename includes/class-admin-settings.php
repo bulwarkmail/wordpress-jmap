@@ -18,6 +18,7 @@ class Bulwark_JMAP_Admin_Settings {
 		add_action( 'admin_menu', array( $this, 'add_settings_page' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'wp_ajax_bulwark_jmap_test', array( $this, 'ajax_test_connection' ) );
+		add_action( 'admin_post_bulwark_jmap_clear_log', array( $this, 'clear_mail_log' ) );
 	}
 
 	public function add_settings_page() {
@@ -130,6 +131,87 @@ class Bulwark_JMAP_Admin_Settings {
 		echo '<p class="description">' . esc_html__( 'Used only by the Send Test Email button. If left empty, the plugin falls back to From Email, then the WordPress admin email.', 'bulwark-jmap-mail' ) . '</p>';
 	}
 
+	private function render_mail_log_section() {
+		$entries = Bulwark_JMAP_Mail_Log::get_entries();
+		?>
+		<hr />
+		<h2><?php esc_html_e( 'Mail Log', 'bulwark-jmap-mail' ); ?></h2>
+		<p><?php esc_html_e( 'Stores the last 100 send attempts. Email bodies are not logged.', 'bulwark-jmap-mail' ); ?></p>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin: 0 0 12px;">
+			<input type="hidden" name="action" value="bulwark_jmap_clear_log" />
+			<?php wp_nonce_field( 'bulwark_jmap_clear_log' ); ?>
+			<?php submit_button( __( 'Clear Mail Log', 'bulwark-jmap-mail' ), 'delete', 'submit', false, array( 'onclick' => "return confirm('" . esc_js( __( 'Clear all stored mail log entries?', 'bulwark-jmap-mail' ) ) . "');" ) ); ?>
+		</form>
+		<?php if ( empty( $entries ) ) : ?>
+			<p><?php esc_html_e( 'No mail log entries yet.', 'bulwark-jmap-mail' ); ?></p>
+		<?php else : ?>
+			<table class="widefat striped">
+				<thead>
+					<tr>
+						<th><?php esc_html_e( 'Time', 'bulwark-jmap-mail' ); ?></th>
+						<th><?php esc_html_e( 'Status', 'bulwark-jmap-mail' ); ?></th>
+						<th><?php esc_html_e( 'To', 'bulwark-jmap-mail' ); ?></th>
+						<th><?php esc_html_e( 'Subject', 'bulwark-jmap-mail' ); ?></th>
+						<th><?php esc_html_e( 'Details', 'bulwark-jmap-mail' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $entries as $entry ) : ?>
+						<tr>
+							<td>
+								<?php
+								$timestamp = isset( $entry['timestamp'] ) ? (int) $entry['timestamp'] : 0;
+								echo esc_html( $timestamp ? wp_date( 'Y-m-d H:i:s', $timestamp ) : '' );
+								?>
+							</td>
+							<td>
+								<strong><?php echo esc_html( 'sent' === ( $entry['status'] ?? '' ) ? __( 'Sent', 'bulwark-jmap-mail' ) : __( 'Failed', 'bulwark-jmap-mail' ) ); ?></strong>
+							</td>
+							<td><code><?php echo esc_html( $entry['to'] ?? '' ); ?></code></td>
+							<td><?php echo esc_html( $entry['subject'] ?? '' ); ?></td>
+							<td>
+								<?php if ( ! empty( $entry['from'] ) ) : ?>
+									<div><?php echo esc_html( sprintf( __( 'From: %s', 'bulwark-jmap-mail' ), $entry['from'] ) ); ?></div>
+								<?php endif; ?>
+								<?php if ( isset( $entry['attachment_count'] ) ) : ?>
+									<div><?php echo esc_html( sprintf( __( 'Attachments: %d', 'bulwark-jmap-mail' ), (int) $entry['attachment_count'] ) ); ?></div>
+								<?php endif; ?>
+								<?php if ( ! empty( $entry['account_id'] ) ) : ?>
+									<div><?php echo esc_html( sprintf( __( 'Account: %s', 'bulwark-jmap-mail' ), $entry['account_id'] ) ); ?></div>
+								<?php endif; ?>
+								<?php if ( ! empty( $entry['identity_id'] ) ) : ?>
+									<div><?php echo esc_html( sprintf( __( 'Identity: %s', 'bulwark-jmap-mail' ), $entry['identity_id'] ) ); ?></div>
+								<?php endif; ?>
+								<?php if ( ! empty( $entry['email_id'] ) ) : ?>
+									<div><?php echo esc_html( sprintf( __( 'Email ID: %s', 'bulwark-jmap-mail' ), $entry['email_id'] ) ); ?></div>
+								<?php endif; ?>
+								<?php if ( ! empty( $entry['error'] ) ) : ?>
+									<div><?php echo esc_html( sprintf( __( 'Error: %s', 'bulwark-jmap-mail' ), $entry['error'] ) ); ?></div>
+								<?php endif; ?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+		<?php endif; ?>
+		<?php
+	}
+
+	public function clear_mail_log() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'bulwark-jmap-mail' ) );
+		}
+
+		check_admin_referer( 'bulwark_jmap_clear_log' );
+		Bulwark_JMAP_Mail_Log::clear();
+
+		wp_safe_redirect( add_query_arg( array(
+			'page'                     => 'bulwark-jmap-mail',
+			'bulwark_jmap_log_cleared' => '1',
+		), admin_url( 'options-general.php' ) ) );
+		exit;
+	}
+
 	public function render_settings_page() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
@@ -137,6 +219,9 @@ class Bulwark_JMAP_Admin_Settings {
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+			<?php if ( isset( $_GET['bulwark_jmap_log_cleared'] ) ) : ?>
+				<div class="notice notice-success inline"><p><?php esc_html_e( 'Mail log cleared.', 'bulwark-jmap-mail' ); ?></p></div>
+			<?php endif; ?>
 			<form method="post" action="options.php">
 				<?php
 				settings_fields( 'bulwark_jmap_group' );
@@ -277,6 +362,7 @@ class Bulwark_JMAP_Admin_Settings {
 				}
 			})();
 			</script>
+			<?php $this->render_mail_log_section(); ?>
 		</div>
 		<?php
 	}

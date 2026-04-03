@@ -48,9 +48,10 @@ class Bulwark_JMAP_Mailer {
 		$cc_addresses  = $this->normalize_addresses( $cc );
 		$bcc_addresses = $this->normalize_addresses( $bcc );
 		$reply_to_addresses = $this->normalize_addresses( $reply_to );
+		$log_entry = $this->build_log_entry( $from_email, $to_addresses, $subject, $attachments );
 
 		if ( empty( $to_addresses ) ) {
-			return false;
+			return $this->fail_send( $log_entry, __( 'No recipient email address provided.', 'bulwark-jmap-mail' ) );
 		}
 
 		// Build the JMAP client.
@@ -62,24 +63,23 @@ class Bulwark_JMAP_Mailer {
 
 		$session_result = $client->discover_session();
 		if ( is_wp_error( $session_result ) ) {
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $session_result->get_error_message() ) );
-			return false;
+			return $this->fail_send( $log_entry, $session_result->get_error_message() );
 		}
 
 		// Get identity.
 		$identity_id = $client->get_identity_id( $from_email );
 		if ( is_wp_error( $identity_id ) ) {
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $identity_id->get_error_message() ) );
-			return false;
+			return $this->fail_send( $log_entry, $identity_id->get_error_message() );
 		}
+		$log_entry['identity_id'] = $identity_id;
 
 		$account_id = $client->get_account_id();
+		$log_entry['account_id'] = $account_id;
 
 		// Resolve the Sent mailbox to store the outgoing email.
 		$sent_mailbox_id = $client->get_mailbox_id_by_role( 'sent' );
 		if ( is_wp_error( $sent_mailbox_id ) ) {
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $sent_mailbox_id->get_error_message() ) );
-			return false;
+			return $this->fail_send( $log_entry, $sent_mailbox_id->get_error_message() );
 		}
 
 		// Upload attachments if any.
@@ -97,8 +97,7 @@ class Bulwark_JMAP_Mailer {
 
 			$blob_id = $client->upload_blob( $file_data, $type );
 			if ( is_wp_error( $blob_id ) ) {
-				do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $blob_id->get_error_message() ) );
-				return false;
+				return $this->fail_send( $log_entry, $blob_id->get_error_message() );
 			}
 
 			$jmap_attachments[] = array(
@@ -150,6 +149,7 @@ class Bulwark_JMAP_Mailer {
 		if ( ! empty( $jmap_attachments ) ) {
 			$email_object['attachments'] = $jmap_attachments;
 		}
+		$log_entry['attachment_count'] = count( $jmap_attachments );
 
 		$email_create_responses = $client->request( array(
 			array(
@@ -165,8 +165,7 @@ class Bulwark_JMAP_Mailer {
 		) );
 
 		if ( is_wp_error( $email_create_responses ) ) {
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $email_create_responses->get_error_message() ) );
-			return false;
+			return $this->fail_send( $log_entry, $email_create_responses->get_error_message() );
 		}
 
 		// Check for errors in Email/set response.
@@ -174,16 +173,15 @@ class Bulwark_JMAP_Mailer {
 			$errors = $email_create_responses[0][1]['notCreated'];
 			$first_error = reset( $errors );
 			$error_msg = isset( $first_error['description'] ) ? $first_error['description'] : __( 'Failed to create email', 'bulwark-jmap-mail' );
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );
-			return false;
+			return $this->fail_send( $log_entry, $error_msg );
 		}
 
 		if ( empty( $email_create_responses[0][1]['created'][ $email_create_id ]['id'] ) ) {
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', __( 'JMAP email creation did not return an email id', 'bulwark-jmap-mail' ) ) );
-			return false;
+			return $this->fail_send( $log_entry, __( 'JMAP email creation did not return an email id', 'bulwark-jmap-mail' ) );
 		}
 
 		$email_id = $email_create_responses[0][1]['created'][ $email_create_id ]['id'];
+		$log_entry['email_id'] = $email_id;
 
 		$submission_responses = $client->request( array(
 			array(
@@ -202,8 +200,7 @@ class Bulwark_JMAP_Mailer {
 		) );
 
 		if ( is_wp_error( $submission_responses ) ) {
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $submission_responses->get_error_message() ) );
-			return false;
+			return $this->fail_send( $log_entry, $submission_responses->get_error_message() );
 		}
 
 		// Check for errors in EmailSubmission/set response.
@@ -211,28 +208,63 @@ class Bulwark_JMAP_Mailer {
 			$errors = $submission_responses[0][1]['notCreated'];
 			$first_error = reset( $errors );
 			$error_msg = isset( $first_error['description'] ) ? $first_error['description'] : __( 'Failed to submit email', 'bulwark-jmap-mail' );
-			do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );
-			return false;
+			return $this->fail_send( $log_entry, $error_msg );
 		}
 
 		// Check for JMAP-level errors (e.g. method-level error responses).
 		foreach ( $email_create_responses as $resp ) {
 			if ( isset( $resp[0] ) && $resp[0] === 'error' ) {
 				$error_msg = isset( $resp[1]['description'] ) ? $resp[1]['description'] : __( 'JMAP error', 'bulwark-jmap-mail' );
-				do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );
-				return false;
+				return $this->fail_send( $log_entry, $error_msg );
 			}
 		}
 
 		foreach ( $submission_responses as $resp ) {
 			if ( isset( $resp[0] ) && $resp[0] === 'error' ) {
 				$error_msg = isset( $resp[1]['description'] ) ? $resp[1]['description'] : __( 'JMAP error', 'bulwark-jmap-mail' );
-				do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $error_msg ) );
-				return false;
+				return $this->fail_send( $log_entry, $error_msg );
 			}
 		}
 
+		Bulwark_JMAP_Mail_Log::add( array_merge( $log_entry, array( 'status' => 'sent' ) ) );
+
 		return true;
+	}
+
+	/**
+	 * Build a log entry for the current send attempt.
+	 *
+	 * @param string $from_email   Sender email address.
+	 * @param array  $to_addresses Recipient addresses.
+	 * @param string $subject      Email subject.
+	 * @param array  $attachments  Attachment paths.
+	 * @return array
+	 */
+	private function build_log_entry( $from_email, $to_addresses, $subject, $attachments ) {
+		return array(
+			'from'             => $from_email,
+			'to'               => implode( ', ', $to_addresses ),
+			'subject'          => $subject,
+			'attachment_count' => is_array( $attachments ) ? count( $attachments ) : 0,
+		);
+	}
+
+	/**
+	 * Record a failed send attempt and dispatch wp_mail_failed.
+	 *
+	 * @param array  $log_entry Log entry context.
+	 * @param string $message   Failure message.
+	 * @return bool
+	 */
+	private function fail_send( $log_entry, $message ) {
+		Bulwark_JMAP_Mail_Log::add( array_merge( $log_entry, array(
+			'status' => 'failed',
+			'error'  => $message,
+		) ) );
+
+		do_action( 'wp_mail_failed', new WP_Error( 'wp_mail_failed', $message ) );
+
+		return false;
 	}
 
 	/**

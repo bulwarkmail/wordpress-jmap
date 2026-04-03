@@ -11,6 +11,7 @@ A WordPress plugin that replaces the default PHP mail function with the modern [
 - CC, BCC, and Reply-To header support
 - Identity auto-detection from JMAP server
 - Separate test recipient for admin test emails
+- Built-in mail log for sent and failed delivery attempts
 - Connection test and test email from the admin panel
 - Compatible with any RFC 8620/8621 compliant JMAP server (Stalwart, Cyrus, etc.)
 
@@ -49,6 +50,9 @@ Yes. Instead of configuring SMTP credentials, you configure your JMAP server and
 
 **Is my password stored securely?**
 The password is stored in the WordPress options table. For additional security, consider defining credentials via `wp-config.php` constants or a secrets manager.
+
+**What does the mail log store?**
+The admin mail log stores the time, recipient, subject, status, and error details for recent send attempts. It does not store email bodies.
 
 ## Changelog
 
