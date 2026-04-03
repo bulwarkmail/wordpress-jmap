@@ -70,6 +70,11 @@ class Bulwark_JMAP_Client {
 			);
 		}
 
+		$this->session['apiUrl'] = $this->normalize_public_endpoint_url( $this->session['apiUrl'] );
+		if ( isset( $this->session['uploadUrl'] ) ) {
+			$this->session['uploadUrl'] = $this->normalize_public_endpoint_url( $this->session['uploadUrl'] );
+		}
+
 		$this->api_url    = $this->session['apiUrl'];
 		$this->upload_url = isset( $this->session['uploadUrl'] ) ? $this->session['uploadUrl'] : null;
 
@@ -170,6 +175,45 @@ class Bulwark_JMAP_Client {
 		$dir  = preg_replace( '#/[^/]*$#', '/', $path );
 
 		return $origin . $dir . ltrim( $location, '/' );
+	}
+
+	/**
+	 * Normalize JMAP endpoint URLs to the configured public origin.
+	 *
+	 * Some servers advertise internal HTTP endpoints in the session document
+	 * even when the public server URL is HTTPS behind a reverse proxy.
+	 *
+	 * @param string $url Endpoint URL from the session document.
+	 * @return string
+	 */
+	private function normalize_public_endpoint_url( $url ) {
+		$public_parts = wp_parse_url( $this->server_url );
+		$target_parts = wp_parse_url( $url );
+
+		if ( empty( $public_parts['scheme'] ) || empty( $public_parts['host'] ) || empty( $target_parts['host'] ) ) {
+			return $url;
+		}
+
+		if ( strtolower( $public_parts['host'] ) !== strtolower( $target_parts['host'] ) ) {
+			return $url;
+		}
+
+		$normalized = $public_parts['scheme'] . '://' . $public_parts['host'];
+		if ( ! empty( $public_parts['port'] ) ) {
+			$normalized .= ':' . $public_parts['port'];
+		}
+
+		$normalized .= isset( $target_parts['path'] ) ? $target_parts['path'] : '';
+
+		if ( isset( $target_parts['query'] ) ) {
+			$normalized .= '?' . $target_parts['query'];
+		}
+
+		if ( isset( $target_parts['fragment'] ) ) {
+			$normalized .= '#' . $target_parts['fragment'];
+		}
+
+		return $normalized;
 	}
 
 	/**

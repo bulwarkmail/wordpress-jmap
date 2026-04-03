@@ -148,12 +148,101 @@ class Bulwark_JMAP_Admin_Settings {
 			<div id="bulwark-jmap-test-result" style="margin-top: 10px;"></div>
 			<script>
 			(function(){
+				var labels = {
+					account: '<?php echo esc_js( __( 'Account', 'bulwark-jmap-mail' ) ); ?>',
+					capabilities: '<?php echo esc_js( __( 'Capabilities', 'bulwark-jmap-mail' ) ); ?>',
+					warning: '<?php echo esc_js( __( 'Warning', 'bulwark-jmap-mail' ) ); ?>',
+					warnings: '<?php echo esc_js( __( 'Warnings', 'bulwark-jmap-mail' ) ); ?>'
+				};
+
 				document.getElementById('bulwark-jmap-test').addEventListener('click', function(){
 					runTest('connection');
 				});
 				document.getElementById('bulwark-jmap-test-email').addEventListener('click', function(){
 					runTest('email');
 				});
+
+				function appendParagraph(container, text, strong) {
+					var p = document.createElement('p');
+					if (strong) {
+						var strongEl = document.createElement('strong');
+						strongEl.textContent = text;
+						p.appendChild(strongEl);
+					} else {
+						p.textContent = text;
+					}
+					container.appendChild(p);
+				}
+
+				function appendLabeledValue(container, label, value, useCode) {
+					var p = document.createElement('p');
+					var strong = document.createElement('strong');
+					strong.textContent = label + ': ';
+					p.appendChild(strong);
+					if (useCode) {
+						var code = document.createElement('code');
+						code.textContent = value;
+						p.appendChild(code);
+					} else {
+						p.appendChild(document.createTextNode(value));
+					}
+					container.appendChild(p);
+				}
+
+				function appendList(container, items, useCode) {
+					var list = document.createElement('ul');
+					list.style.margin = '8px 0 0 20px';
+					items.forEach(function(item){
+						var li = document.createElement('li');
+						if (useCode) {
+							var code = document.createElement('code');
+							code.textContent = item;
+							li.appendChild(code);
+						} else {
+							li.textContent = item;
+						}
+						list.appendChild(li);
+					});
+					container.appendChild(list);
+				}
+
+				function renderResult(resultDiv, success, data) {
+					var cls = success ? 'notice-success' : 'notice-error';
+					var wrap = document.createElement('div');
+					wrap.className = 'notice ' + cls + ' inline';
+					var content = document.createElement('div');
+
+					if (data && typeof data === 'object' && !Array.isArray(data)) {
+						if (data.message) {
+							appendParagraph(content, data.message, true);
+						}
+						if (data.account) {
+							appendLabeledValue(content, labels.account, data.account, true);
+						}
+						if (data.capabilities && data.capabilities.length) {
+							var details = document.createElement('details');
+							details.open = true;
+							var summary = document.createElement('summary');
+							summary.textContent = labels.capabilities + ' (' + data.capabilities.length + ')';
+							details.appendChild(summary);
+							appendList(details, data.capabilities, true);
+							content.appendChild(details);
+						}
+						if (data.warnings && data.warnings.length) {
+							appendParagraph(content, data.warnings.length === 1 ? labels.warning : labels.warnings, true);
+							appendList(content, data.warnings, false);
+						}
+					}
+
+					if (!content.childNodes.length) {
+						appendParagraph(content, data || '', false);
+					}
+
+					wrap.appendChild(content);
+					resultDiv.innerHTML = '';
+					resultDiv.appendChild(wrap);
+				}
+
 				function runTest(type) {
 					var resultDiv = document.getElementById('bulwark-jmap-test-result');
 					resultDiv.innerHTML = '<p><em><?php echo esc_js( __( 'Testing...', 'bulwark-jmap-mail' ) ); ?></em></p>';
@@ -164,17 +253,10 @@ class Bulwark_JMAP_Admin_Settings {
 					fetch(ajaxurl, { method: 'POST', body: data })
 						.then(function(r){ return r.json(); })
 						.then(function(r){
-							var cls = r.success ? 'notice-success' : 'notice-error';
-							var wrap = document.createElement('div');
-							wrap.className = 'notice ' + cls + ' inline';
-							var p = document.createElement('p');
-							p.textContent = r.data;
-							wrap.appendChild(p);
-							resultDiv.innerHTML = '';
-							resultDiv.appendChild(wrap);
+							renderResult(resultDiv, r.success, r.data);
 						})
 						.catch(function(e){
-							resultDiv.innerHTML = '<div class="notice notice-error inline"><p>' + e.message + '</p></div>';
+							renderResult(resultDiv, false, { message: e.message });
 						});
 				}
 			})();
@@ -187,13 +269,17 @@ class Bulwark_JMAP_Admin_Settings {
 		check_ajax_referer( 'bulwark_jmap_test', '_wpnonce' );
 
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_send_json_error( __( 'Permission denied.', 'bulwark-jmap-mail' ) );
+			wp_send_json_error( array(
+				'message' => __( 'Permission denied.', 'bulwark-jmap-mail' ),
+			) );
 		}
 
 		$options = get_option( $this->option_name, array() );
 
 		if ( empty( $options['server_url'] ) || empty( $options['username'] ) || empty( $options['password'] ) ) {
-			wp_send_json_error( __( 'Please configure and save the JMAP server URL, username, and password first.', 'bulwark-jmap-mail' ) );
+			wp_send_json_error( array(
+				'message' => __( 'Please configure and save the JMAP server URL, username, and password first.', 'bulwark-jmap-mail' ),
+			) );
 		}
 
 		$client = new Bulwark_JMAP_Client(
@@ -204,7 +290,9 @@ class Bulwark_JMAP_Admin_Settings {
 
 		$result = $client->discover_session();
 		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( $result->get_error_message() );
+			wp_send_json_error( array(
+				'message' => $result->get_error_message(),
+			) );
 		}
 
 		$test_type = isset( $_POST['test_type'] ) ? sanitize_text_field( $_POST['test_type'] ) : 'connection';
@@ -225,7 +313,9 @@ class Bulwark_JMAP_Admin_Settings {
 			remove_action( 'wp_mail_failed', $error_handler, 10 );
 
 			if ( $sent ) {
-				wp_send_json_success( __( 'Test email sent successfully!', 'bulwark-jmap-mail' ) );
+				wp_send_json_success( array(
+					'message' => __( 'Test email sent successfully!', 'bulwark-jmap-mail' ),
+				) );
 			} else {
 				$message = __( 'Failed to send test email. Check your JMAP server logs.', 'bulwark-jmap-mail' );
 
@@ -233,34 +323,31 @@ class Bulwark_JMAP_Admin_Settings {
 					$message = $mail_error->get_error_message();
 				}
 
-				wp_send_json_error( $message );
+				wp_send_json_error( array(
+					'message' => $message,
+				) );
 			}
 		} else {
 			$session = $client->get_session();
 			$capabilities = array_keys( $session['capabilities'] ?? array() );
 			$has_submission = $client->supports_submission();
-
-			$msg = sprintf(
-				/* translators: 1: account ID, 2: capabilities list */
-				__( 'Connection successful! Account: %1$s. Capabilities: %2$s.', 'bulwark-jmap-mail' ),
-				esc_html( $client->get_account_id() ),
-				esc_html( implode( ', ', $capabilities ) )
-			);
+			$warnings = array();
 
 			if ( ! $has_submission ) {
-				$msg .= ' ' . __( 'Warning: Server does not advertise urn:ietf:params:jmap:submission capability. Email sending may not work.', 'bulwark-jmap-mail' );
+				$warnings[] = __( 'Server does not advertise urn:ietf:params:jmap:submission capability. Email sending may not work.', 'bulwark-jmap-mail' );
 			}
 
 			$identity_result = $client->get_identity_id( $options['from_email'] ?? '' );
 			if ( is_wp_error( $identity_result ) ) {
-				$msg .= ' ' . sprintf(
-					/* translators: %s: JMAP identity error message */
-					__( 'Warning: %s', 'bulwark-jmap-mail' ),
-					esc_html( $identity_result->get_error_message() )
-				);
+				$warnings[] = $identity_result->get_error_message();
 			}
 
-			wp_send_json_success( $msg );
+			wp_send_json_success( array(
+				'message'      => __( 'Connection successful!', 'bulwark-jmap-mail' ),
+				'account'      => (string) $client->get_account_id(),
+				'capabilities' => array_values( $capabilities ),
+				'warnings'     => $warnings,
+			) );
 		}
 	}
 }
