@@ -2,7 +2,15 @@
 
 A WordPress plugin that routes `wp_mail()` through the modern [JMAP protocol](https://jmap.io/) (`RFC 8620` / `RFC 8621`) instead of relying on PHP mail or a traditional SMTP plugin.
 
-Source repository: [bulwarkmail/wordpress-jmap](https://github.com/bulwarkmail/wordpress-jmap)
+## Screenshots
+
+### Settings Page
+
+![Settings page with JMAP server configuration and test connection tools](screenshots/settings.png)
+
+### Test Email Received
+
+![Test email received in the inbox via JMAP](screenshots/test_mail.png)
 
 ## Features
 
