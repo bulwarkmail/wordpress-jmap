@@ -51,6 +51,7 @@ The password is stored in the WordPress options table. For additional security, 
 ## Changelog
 
 ### 1.0.0
+
 - Initial release
 - JMAP session discovery and authentication
 - Email sending via `Email/set` + `EmailSubmission/set`

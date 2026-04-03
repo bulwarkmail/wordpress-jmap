@@ -211,15 +211,29 @@ class Bulwark_JMAP_Admin_Settings {
 
 		if ( 'email' === $test_type ) {
 			$to = ! empty( $options['from_email'] ) ? $options['from_email'] : get_bloginfo( 'admin_email' );
+			$mail_error = null;
+			$error_handler = function( $error ) use ( &$mail_error ) {
+				$mail_error = $error;
+			};
+
+			add_action( 'wp_mail_failed', $error_handler, 10, 1 );
 			$sent = wp_mail(
 				$to,
 				__( 'Bulwark JMAP Mail - Test Email', 'bulwark-jmap-mail' ),
 				__( 'This is a test email sent via Bulwark JMAP Mail plugin. If you received this, your JMAP configuration is working correctly.', 'bulwark-jmap-mail' )
 			);
+			remove_action( 'wp_mail_failed', $error_handler, 10 );
+
 			if ( $sent ) {
 				wp_send_json_success( __( 'Test email sent successfully!', 'bulwark-jmap-mail' ) );
 			} else {
-				wp_send_json_error( __( 'Failed to send test email. Check your JMAP server logs.', 'bulwark-jmap-mail' ) );
+				$message = __( 'Failed to send test email. Check your JMAP server logs.', 'bulwark-jmap-mail' );
+
+				if ( $mail_error instanceof WP_Error && $mail_error->get_error_message() ) {
+					$message = $mail_error->get_error_message();
+				}
+
+				wp_send_json_error( $message );
 			}
 		} else {
 			$session = $client->get_session();
@@ -235,6 +249,15 @@ class Bulwark_JMAP_Admin_Settings {
 
 			if ( ! $has_submission ) {
 				$msg .= ' ' . __( 'Warning: Server does not advertise urn:ietf:params:jmap:submission capability. Email sending may not work.', 'bulwark-jmap-mail' );
+			}
+
+			$identity_result = $client->get_identity_id( $options['from_email'] ?? '' );
+			if ( is_wp_error( $identity_result ) ) {
+				$msg .= ' ' . sprintf(
+					/* translators: %s: JMAP identity error message */
+					__( 'Warning: %s', 'bulwark-jmap-mail' ),
+					esc_html( $identity_result->get_error_message() )
+				);
 			}
 
 			wp_send_json_success( $msg );

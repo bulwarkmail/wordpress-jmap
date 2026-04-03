@@ -35,14 +35,7 @@ class Bulwark_JMAP_Client {
 	 */
 	public function discover_session() {
 		$session_url = $this->server_url . '/.well-known/jmap';
-
-		$response = wp_remote_get( $session_url, array(
-			'headers' => array(
-				'Authorization' => $this->auth_header,
-				'Accept'        => 'application/json',
-			),
-			'timeout' => 30,
-		) );
+		$response    = $this->request_session_document( $session_url );
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
@@ -62,6 +55,13 @@ class Bulwark_JMAP_Client {
 
 		$body = wp_remote_retrieve_body( $response );
 		$this->session = json_decode( $body, true );
+
+		if ( ! is_array( $this->session ) ) {
+			return new WP_Error(
+				'jmap_session_invalid_json',
+				__( 'JMAP session response was not valid JSON', 'bulwark-jmap-mail' )
+			);
+		}
 
 		if ( empty( $this->session['apiUrl'] ) ) {
 			return new WP_Error(
@@ -84,6 +84,92 @@ class Bulwark_JMAP_Client {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Request the JMAP session document, following redirects explicitly.
+	 *
+	 * Some servers redirect /.well-known/jmap to the actual session endpoint.
+	 * Handle that here so auth headers are preserved consistently.
+	 *
+	 * @param string $session_url Discovery or session URL.
+	 * @param int    $redirects   Remaining redirects to follow.
+	 * @return array|WP_Error
+	 */
+	private function request_session_document( $session_url, $redirects = 3 ) {
+		$response = wp_remote_get( $session_url, array(
+			'headers'     => array(
+				'Authorization' => $this->auth_header,
+				'Accept'        => 'application/json',
+			),
+			'timeout'     => 30,
+			'redirection' => 0,
+		) );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		if ( in_array( $code, array( 301, 302, 303, 307, 308 ), true ) ) {
+			if ( $redirects < 1 ) {
+				return new WP_Error(
+					'jmap_session_redirect_limit',
+					__( 'JMAP session discovery exceeded the redirect limit', 'bulwark-jmap-mail' )
+				);
+			}
+
+			$location = wp_remote_retrieve_header( $response, 'location' );
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'jmap_session_redirect_missing',
+					__( 'JMAP session discovery redirect did not include a Location header', 'bulwark-jmap-mail' )
+				);
+			}
+
+			return $this->request_session_document(
+				$this->resolve_redirect_url( $session_url, $location ),
+				$redirects - 1
+			);
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Resolve a redirect location against the request URL.
+	 *
+	 * @param string $request_url Original request URL.
+	 * @param string $location    Redirect location header value.
+	 * @return string
+	 */
+	private function resolve_redirect_url( $request_url, $location ) {
+		if ( preg_match( '#^https?://#i', $location ) ) {
+			return $location;
+		}
+
+		$request_parts = wp_parse_url( $request_url );
+		if ( empty( $request_parts['scheme'] ) || empty( $request_parts['host'] ) ) {
+			return $location;
+		}
+
+		$origin = $request_parts['scheme'] . '://' . $request_parts['host'];
+		if ( ! empty( $request_parts['port'] ) ) {
+			$origin .= ':' . $request_parts['port'];
+		}
+
+		if ( 0 === strpos( $location, '//' ) ) {
+			return $request_parts['scheme'] . ':' . $location;
+		}
+
+		if ( 0 === strpos( $location, '/' ) ) {
+			return $origin . $location;
+		}
+
+		$path = isset( $request_parts['path'] ) ? $request_parts['path'] : '/';
+		$dir  = preg_replace( '#/[^/]*$#', '/', $path );
+
+		return $origin . $dir . ltrim( $location, '/' );
 	}
 
 	/**
