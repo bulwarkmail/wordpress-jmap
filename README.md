@@ -1,69 +1,113 @@
 # Bulwark JMAP Mail
 
-A WordPress plugin that replaces the default PHP mail function with the modern [JMAP protocol](https://jmap.io/) (RFC 8620/8621) for sending emails.
+A WordPress plugin that routes `wp_mail()` through the modern [JMAP protocol](https://jmap.io/) (`RFC 8620` / `RFC 8621`) instead of relying on PHP mail or a traditional SMTP plugin.
+
+Source repository: [bulwarkmail/wordpress-jmap](https://github.com/bulwarkmail/wordpress-jmap)
 
 ## Features
 
-- Sends all WordPress emails via your JMAP server
-- Automatic JMAP session discovery via `.well-known/jmap`
-- HTML and plain text email support with automatic plain-text fallback
-- File attachment support via JMAP blob upload
-- CC, BCC, and Reply-To header support
-- Identity auto-detection from JMAP server
-- Separate test recipient for admin test emails
-- Built-in mail log for sent and failed delivery attempts
-- Connection test and test email from the admin panel
-- Compatible with any RFC 8620/8621 compliant JMAP server (Stalwart, Cyrus, etc.)
-
-## How It Works
-
-1. Hooks into the WordPress `pre_wp_mail` filter to intercept outgoing email
-2. Discovers the JMAP session at `{server}/.well-known/jmap`
-3. Resolves the sender's identity and the Sent mailbox from the server
-4. Creates the email via `Email/set`, then submits it via `EmailSubmission/set` using the returned email id
+- Sends WordPress mail through any compatible JMAP server
+- Discovers the JMAP session automatically via `.well-known/jmap`
+- Handles redirected discovery endpoints and normalizes advertised API URLs for reverse-proxy setups
+- Resolves the sender identity and Sent mailbox automatically
+- Supports HTML and plain-text messages with plain-text fallback
+- Supports CC, BCC, Reply-To, and file attachments
+- Provides a dedicated **Test Recipient** field for admin test emails
+- Shows account, identity, capabilities, and warnings in the connection test UI
+- Includes a built-in mail log for recent sent and failed attempts
+- Compatible with RFC 8620/8621 servers such as [Stalwart Mail Server](https://stalw.art/)
 
 ## Requirements
 
-- A JMAP-compatible mail server with `urn:ietf:params:jmap:submission` capability
-- PHP 7.4 or later
 - WordPress 5.8 or later
-
-Tested with [Stalwart Mail Server](https://stalw.art/). Should work with Cyrus IMAP and other RFC 8620/8621 compliant servers.
+- PHP 7.4 or later
+- A JMAP server that supports `urn:ietf:params:jmap:core`, `urn:ietf:params:jmap:mail`, and `urn:ietf:params:jmap:submission`
+- An account with at least one usable sending identity
+- Access to a mailbox with the `sent` role
 
 ## Installation
 
-1. Upload the `bulwark-jmap-mail` folder to `/wp-content/plugins/`
-2. Activate the plugin through the **Plugins** menu in WordPress
-3. Go to **Settings → JMAP Mail**
-4. Enter your JMAP server URL, username, and password
-5. Enable the plugin and save
-6. Optionally set a dedicated **Test Recipient** address for admin test emails
-7. Use the **Test Connection** button to verify your setup, then **Send Test Email** to confirm delivery
+1. Download the plugin folder or a release zip.
+2. Upload the zip through **Plugins → Add New → Upload Plugin**, or copy the `bulwark-jmap-mail` folder to `/wp-content/plugins/`.
+3. Activate the plugin.
+4. Open **Settings → JMAP Mail**.
+
+## Configuration
+
+1. Enter your JMAP server URL, username, and password.
+2. Set **From Name** and **From Email**.
+3. Optionally set **Test Recipient** for the **Send Test Email** button.
+4. Enable the plugin and save.
+5. Run **Test JMAP Connection**.
+6. Run **Send Test Email**.
+
+## How It Works
+
+1. Hooks into the WordPress `pre_wp_mail` filter to intercept outgoing mail.
+2. Discovers the JMAP session from `{server}/.well-known/jmap`.
+3. Normalizes the advertised JMAP API and upload URLs to the configured public origin when needed.
+4. Resolves the mail account, sender identity, and Sent mailbox.
+5. Creates the message via `Email/set`.
+6. Submits the created message via `EmailSubmission/set` using the returned email id.
+7. Records the result in the admin mail log.
+
+## Admin Tools
+
+- **Test JMAP Connection** validates session discovery and shows the resolved account, identity, capabilities, and warnings.
+- **Send Test Email** sends to **Test Recipient**, then falls back to **From Email**, then the WordPress admin email.
+- **Mail Log** stores the most recent 100 send attempts with timestamps, recipients, subjects, status, and error details.
+- **Clear Mail Log** removes all stored log entries from the plugin settings page.
+
+## Mail Log
+
+The mail log stores metadata only. It does not store message bodies or attachment contents.
+
+Each entry can include:
+
+- Timestamp
+- Status (`sent` or `failed`)
+- Recipient
+- From address
+- Subject
+- Attachment count
+- Account id
+- Identity id
+- Created email id
+- Failure message, if any
 
 ## FAQ
 
 **What is JMAP?**
-JMAP (JSON Meta Application Protocol) is a modern open standard for email access and submission defined in RFC 8620 and RFC 8621. It replaces IMAP and SMTP with a single JSON-over-HTTP protocol.
+JMAP (JSON Meta Application Protocol) is a modern open standard for email access and submission defined in RFC 8620 and RFC 8621. It replaces IMAP and SMTP with a JSON-over-HTTP protocol.
 
 **Does this replace SMTP plugins?**
-Yes. Instead of configuring SMTP credentials, you configure your JMAP server and all WordPress emails are sent through JMAP's `EmailSubmission` mechanism.
+Yes. Instead of configuring SMTP credentials, you configure your JMAP server and WordPress mail is submitted through JMAP.
+
+**Where does the test email go?**
+The **Send Test Email** button sends to **Test Recipient** if it is set. If that field is empty, it falls back to **From Email**, then the WordPress admin email.
+
+**Why can the connection test succeed while sending still fails?**
+Connection testing only proves that session discovery and basic account access work. Actual sending can still fail if the selected account has no valid sending identity, no accessible Sent mailbox, or if the server rejects submission details.
 
 **Is my password stored securely?**
-The password is stored in the WordPress options table. For additional security, consider defining credentials via `wp-config.php` constants or a secrets manager.
+The password is stored in the WordPress options table. For higher-security deployments, consider moving credentials into `wp-config.php` constants or another secret-management layer.
 
-**What does the mail log store?**
-The admin mail log stores the time, recipient, subject, status, and error details for recent send attempts. It does not store email bodies.
+## Packaging
+
+- Generated release archives can be stored in the `releases/` directory.
+- The repository includes a `.gitignore` rule so generated zip files in `releases/` are not committed accidentally.
 
 ## Changelog
 
 ### 1.0.0
 
-- Initial release
+- Initial release of the WordPress JMAP mailer
 - JMAP session discovery and authentication
-- Email sending via `Email/set` + `EmailSubmission/set`
-- Attachment support via blob upload
-- Admin settings page with connection tester
-- HTML and plain text email support
+- Compatibility fixes for redirected discovery endpoints and strict JMAP servers
+- Email creation via `Email/set` followed by submission via `EmailSubmission/set`
+- HTML/plain-text messages, CC/BCC/Reply-To, and attachment support
+- Admin connection diagnostics, identity display, and dedicated test recipient
+- Built-in mail log for sent and failed messages
 
 ## License
 
