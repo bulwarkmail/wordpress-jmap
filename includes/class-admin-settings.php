@@ -405,6 +405,11 @@ class Bulwark_JMAP_Admin_Settings {
 				$to = ! empty( $options['from_email'] ) ? $options['from_email'] : get_bloginfo( 'admin_email' );
 			}
 
+			// Ensure JMAP mailer is active for the test send, even if routing is disabled.
+			if ( ! has_filter( 'pre_wp_mail' ) ) {
+				new Bulwark_JMAP_Mailer( $options );
+			}
+
 			$mail_error = null;
 			$error_handler = function( $error ) use ( &$mail_error ) {
 				$mail_error = $error;
