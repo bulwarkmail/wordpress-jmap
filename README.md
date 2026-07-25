@@ -4,11 +4,11 @@ A WordPress plugin that routes `wp_mail()` through the modern [JMAP protocol](ht
 
 ## Screenshots
 
-### Settings Page
+### Settings page
 
 ![Settings page with JMAP server configuration and test connection tools](screenshots/settings.png)
 
-### Test Email Received
+### Test email received
 
 ![Test email received in the inbox via JMAP](screenshots/test_mail.png)
 
@@ -49,7 +49,7 @@ A WordPress plugin that routes `wp_mail()` through the modern [JMAP protocol](ht
 5. Run **Test JMAP Connection**.
 6. Run **Send Test Email**.
 
-## How It Works
+## How it works
 
 1. Hooks into the WordPress `pre_wp_mail` filter to intercept outgoing mail.
 2. Discovers the JMAP session from `{server}/.well-known/jmap`.
@@ -59,14 +59,14 @@ A WordPress plugin that routes `wp_mail()` through the modern [JMAP protocol](ht
 6. Submits the created message via `EmailSubmission/set` using the returned email id.
 7. Records the result in the admin mail log.
 
-## Admin Tools
+## Admin tools
 
 - **Test JMAP Connection** validates session discovery and shows the resolved account, identity, capabilities, and warnings.
 - **Send Test Email** sends to **Test Recipient**, then falls back to **From Email**, then the WordPress admin email.
 - **Mail Log** stores the most recent 100 send attempts with timestamps, recipients, subjects, status, and error details.
 - **Clear Mail Log** removes all stored log entries from the plugin settings page.
 
-## Mail Log
+## Mail log
 
 The mail log stores metadata only. It does not store message bodies or attachment contents.
 
