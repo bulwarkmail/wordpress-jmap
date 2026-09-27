@@ -1,0 +1,58 @@
+name: Release plugin zip
+
+# Builds bulwark-jmap-mail-<version>.zip from the tagged commit when a release
+# is published, and attaches it with a `.sha256` next to it and a signed build
+# provenance attestation:
+# `gh attestation verify <zip> --repo bulwarkmail/wordpress-jmap`.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # WordPress reads the header, the plugin reports the constant; both
+      # must match the tag or updates show the wrong version.
+      - name: Check the plugin version
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          HEADER=$(sed -n 's/^ \* Version: *//p' bulwark-jmap-mail.php | tr -d '[:space:]')
+          CONSTANT=$(sed -n "s/^define( *'BULWARK_JMAP_VERSION', *'\([^']*\)' *);.*/\1/p" bulwark-jmap-mail.php)
+          if [ "$HEADER" != "$VERSION" ] || [ "$CONSTANT" != "$VERSION" ]; then
+            echo "::error title=Version mismatch::The tag is $VERSION, but bulwark-jmap-mail.php has Version: $HEADER and BULWARK_JMAP_VERSION $CONSTANT."
+            exit 1
+          fi
+          echo "ZIP=bulwark-jmap-mail-$VERSION.zip" >> "$GITHUB_ENV"
+
+      - name: Build zip
+        run: |
+          git archive --format=zip --prefix=bulwark-jmap-mail/ -o "$ZIP" HEAD \
+            bulwark-jmap-mail.php LICENSE README.md includes screenshots
+          sha256sum "$ZIP" > "$ZIP.sha256"
+          unzip -l "$ZIP"
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ env.ZIP }}
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG_NAME" "$ZIP" "$ZIP.sha256" --clobber
